@@ -7,7 +7,7 @@ from vrpy import VehicleRoutingProblem
 import matplotlib.pyplot as plt
 
 # Number of pairs (pickup and delivery)
-PAIRS = 40
+PAIRS = 50
 
 # # Start timer
 # start_time = time.time()
@@ -78,9 +78,6 @@ def draw_graph_with_time_windows(G):
     plt.grid(True)
     plt.show()
 
-# Visualize the graph with the assigned time windows
-draw_graph_with_time_windows(G)
-
 # # End timer
 # end_time = time.time()
 
@@ -113,12 +110,16 @@ for u in list(G.predecessors("Source")):
 for v in list(G.successors("Sink")):
     G.remove_edge("Sink", v)
 
+
+# Visualize the graph with the assigned time windows
+draw_graph_with_time_windows(G)
+
 # Start timer
 start_time = time.time()
 
 # Now proceed with the VRP setup
 time_limit = 60*60*3
-prob = VehicleRoutingProblem(G, load_capacity=5, num_stops=6, pickup_delivery=True)
+prob = VehicleRoutingProblem(G, load_capacity=2, num_stops=6, pickup_delivery=True)
 prob.solve(cspy=False, ) #time_limit=time_limit
 
 # End timer
@@ -151,10 +152,21 @@ def check_pairs_served(routing, manager, solution, data):
 
 
 '''
-macbook
+
+windows 89 (just random):
+10: 5.9 sec
+20: 138 sec -> 2 min 18 sec
+30: 297 sec -> 4 min 57 sec
+40: 2140 sec -> 35 min 40 sec
+50: 4967 sec -> 1 hr 22 min 47 sec
+60: 18324 sec -> 5 hr 5 min 24 sec
+70: 41460 sec -> 11 hr 3 min 6 sec
+
 
 windows 89:
 10: 2 sec
 20: 33 sec
 30: 194 sec -> 3 min 14 sec
+40: 1228 sec -> 20 min 28 sec
+50:
 '''
