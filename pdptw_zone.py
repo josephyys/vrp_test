@@ -89,13 +89,14 @@ for v in list(G.successors("Sink")):
     G.remove_edge("Sink", v)
 
 # Define hourly zones and solve VRP for each hour sequentially
+# Define hourly zones and solve VRP for each hour sequentially
 def solve_hour_zones(G, num_hours=10):
     start_of_day = 8 * 60 * 60  # 8:00 AM in seconds
     hour_duration = 3600  # 1 hour in seconds
     total_elapsed_time = 0
 
     preassigned_routes = []  # Holds the routes from previous hour
-    preassigned_nodes = set()  # Keeps track of nodes already processed
+    hour_results = []  # Store results for each hour
 
     for hour in range(num_hours):
         print(f"\nSolving for Hour {hour + 1} ({start_of_day // 3600 + hour}:00 to {start_of_day // 3600 + hour + 1}:00)")
@@ -112,11 +113,9 @@ def solve_hour_zones(G, num_hours=10):
         for n in G.nodes:
             demand = G.nodes[n].get("demand", 0)
             if demand > 0:
-                # If demand is positive, it's a pickup
-                pickups.append(n)
+                pickups.append(n)  # If demand is positive, it's a pickup
             elif demand < 0:
-                # If demand is negative, it's a delivery
-                deliveries.append(n)
+                deliveries.append(n)  # If demand is negative, it's a delivery
 
         # Print all pickup and delivery nodes
         print(f"Pickup nodes: {pickups}")
@@ -138,10 +137,54 @@ def solve_hour_zones(G, num_hours=10):
         # Check for valid requests in this hour
         if not valid_requests:
             print(f"Skipping Hour {hour + 1}: No valid pickup-delivery pairs.")
+            hour_results.append((hour + 1, [], []))  # Store empty results
             continue
 
-        # Create subgraph for the nodes in this hour
-        subG = G.subgraph(set(pickups + deliveries) | {"Source", "Sink"}).copy()
+        # Create subgraph for the nodes in this hour using only the valid requests
+        # Use copy() to create a mutable subgraph
+
+        # Create subgraph for the nodes in this hour using only the valid requests
+        subG = G.subgraph({"Source", "Sink"}).copy()  # Start with Source and Sink only
+
+        for pickup, delivery in valid_requests:
+            subG.add_node(pickup)
+            subG.add_node(delivery)
+
+            # Add edges between Source and pickups, and deliveries and Sink with a default weight
+            subG.add_edge("Source", pickup, weight=G["Source"][pickup].get("weight", 1))  # Specify cost attribute with default
+            subG.add_edge(delivery, "Sink", weight=G[delivery]["Sink"].get("weight", 1))  # Specify cost attribute with default
+
+            # You can also add edges between pickups and deliveries if necessary
+            subG.add_node(delivery)
+
+            # Copy node attributes (demand, request, etc.) from original graph to subgraph
+            for attr in ["demand", "request", "lower", "upper"]:
+                if attr in G.nodes[pickup]:
+                    subG.nodes[pickup][attr] = G.nodes[pickup][attr]
+                if attr in G.nodes[delivery]:
+                    subG.nodes[delivery][attr] = G.nodes[delivery][attr]
+
+
+
+            # Ensure Source has no incoming edges and Sink has no outgoing edges
+            for u in list(subG.predecessors("Source")):
+                subG.remove_edge(u, "Source")
+            for v in list(subG.successors("Sink")):
+                subG.remove_edge("Sink", v)
+
+            # Ensure all edges have a 'cost' attribute
+            for u, v in subG.edges():
+                if 'cost' not in subG[u][v]:
+                    subG[u][v]['cost'] = 1 # DISTANCES[u][v]  # Assign a default cost if none exists
+
+            # You can also add edges between pickups and deliveries if necessary
+
+            subG.add_node(delivery)
+
+            # Add edges between Source and pickups, and deliveries and Sink
+            subG.add_edge("Source", pickup)
+            subG.add_edge(delivery, "Sink")
+            # You can also add edges between pickups and deliveries if necessary
 
         # Ensure Source has no incoming edges and Sink has no outgoing edges
         for u in list(subG.predecessors("Source")):
@@ -149,51 +192,69 @@ def solve_hour_zones(G, num_hours=10):
         for v in list(subG.successors("Sink")):
             subG.remove_edge("Sink", v)
 
-        # Check and ensure demand does not exceed capacity
-        total_demand = sum(G.nodes[u]["demand"] for u in pickups + deliveries if u in subG)
-        if total_demand > 5:  # Adjust this based on your vehicle's capacity
-            print(f"Skipping Hour {hour + 1}: Total demand {total_demand} exceeds vehicle capacity.")
-            continue
-
         # Print the current subgraph's nodes and edges for debugging
         print(f"Nodes in subgraph for Hour {hour + 1}: {subG.nodes()}")
         print(f"Edges in subgraph for Hour {hour + 1}: {subG.edges()}")
 
-        # Solve the VRP for this subgraph
-        start_time = time.time()
-        prob = VehicleRoutingProblem(subG, load_capacity=5, num_stops=6, pickup_delivery=True)
-
-        try:
-            prob.solve(cspy=False)
-        except Exception as e:
-            print(f"Error solving for Hour {hour + 1}: {e}")
+        # Check and ensure demand does not exceed capacity
+        total_demand = sum(G.nodes[u]["demand"] for u in pickups + deliveries if u in subG)
+        if total_demand > 5:  # Adjust this based on your vehicle's capacity
+            print(f"Skipping Hour {hour + 1}: Total demand {total_demand} exceeds vehicle capacity.")
+            hour_results.append((hour + 1, [], []))  # Store empty results
             continue
 
-        end_time = time.time()
+        start_time = time.time()
 
-        elapsed_time = end_time - start_time
-        total_elapsed_time += elapsed_time
+        # Use preassigned routes if there are any from the previous hour
+        prob = VehicleRoutingProblem(subG, load_capacity=5, num_stops=6, pickup_delivery=True)
+
+        # Use previous routes as preassignments for this hour
+        if hour > 0 and preassigned_routes:
+            prob.solve(cspy=False, preassignments=preassigned_routes)
+        else:
+            try:
+                prob.solve(cspy=False)
+            except Exception as e:
+                print(f"Error solving for Hour {hour + 1}: {e}")
+                hour_results.append((hour + 1, [], []))  # Store empty results
+                continue
+            
+        end_time = time.time()
+        total_elapsed_time += (end_time - start_time)
 
         # Output results for this hour
         print(f"Hour {hour + 1} solution:")
         print(f"Best objective value: {prob.best_value}")
         print(f"Best routes: {prob.best_routes}")
         print(f"Node loads: {prob.node_load}")
-        print(f"Time taken for Hour {hour + 1}: {elapsed_time} seconds")
+
+        # Append dispatching results for the current hour
+        current_hour_results = []
+        for vehicle_id, route in prob.best_routes.items():
+            current_hour_results.append((vehicle_id, route))
+        hour_results.append((hour + 1, prob.best_value, current_hour_results))
 
         # Update preassigned routes for the next hour
         preassigned_routes = []
         if prob.best_routes:
             for route in prob.best_routes.values():
-                if len(route) > 1:
-                    preassigned_routes.append(route)
-                    preassigned_nodes.update(route[:-1])
-
-        # Draw the graph for the current hour zone
-        draw_graph_with_time_windows(subG)
+                if len(route) > 1:  # Only keep routes with more than one stop
+                    preassigned_routes.append(route)  # Keep this route for next hour
 
     # Output the total time taken
     print(f"\nTotal time taken for all hours: {total_elapsed_time} seconds")
 
+    # Print final dispatching results for all hours
+    print("\nDispatching Results for Each Hour:")
+    for hour_num, best_value, routes in hour_results:
+        print(f"Hour {hour_num}:")
+        if not routes:
+            print("  No valid routes found.")
+        else:
+            print(f"  Best objective value: {best_value}")
+            for vehicle_id, route in routes:
+                print(f"  Vehicle {vehicle_id}: {route}")
+
 # Solve VRP for each hourly zone
 solve_hour_zones(G, num_hours=10)
+

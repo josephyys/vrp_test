@@ -27,7 +27,7 @@ DISTANCES = [
 
 # Demands (key: node, value: amount)
 # DEMAND = {1: 1, 2: 1, 3: 2, 4: 4, 5: 2, 6: 4, 7: 8, 8: 8, 9: 1, 10: 2, 11: 1, 12: 2, 13: 4, 14: 4, 15: 8, 16: 8}
-DEMAND = {1: 1, 2: 2, 3: 3, 4: -3, 5: 1, 6: -1, 7: 2, 8: -2, 9: -1, 10: -2, 11: -3, 12: -1, 13: 1, 14: 4, 15: 3, 16: -4}
+DEMAND = {1: 1, 2: 2, 3: 3, 4: -3, 5: 1, 6: -1, 7: 2, 8: -2, 9: -1, 10: -2, 11: -3, 12: -1, 13: 1, 14: -4, 15: 3, 16: 4}
 
 
 # The matrix is transformed into a DiGraph
@@ -64,16 +64,17 @@ set_node_attributes(G, values=TIME_WINDOWS_UPPER, name="upper")
 time_limit = 10  # Let's limit it to 10 seconds for this example
 
 # # Create the problem instance
-# prob = VehicleRoutingProblem(G, load_capacity=4, num_stops=6, pickup_delivery=True)
+prob = VehicleRoutingProblem(G, load_capacity=4, num_stops=6, pickup_delivery=True)
 
 
-# # Enable logging to console to show intermediate results and progress
-# prob.solve(cspy=False, time_limit=time_limit) #, log_to_console=True
+# Enable logging to console to show intermediate results and progress
+prob.time_windows = True
+prob.solve(cspy=False, ) #, log_to_console=True time_limit=time_limit
 
 # # Print the current best solution and its value
-# print("Best Value:", prob.best_value)
-# print("Best Routes:", prob.best_routes)
-# print("Node Loads:", prob.node_load)
+print("Best Value:", prob.best_value)
+print("Best Routes:", prob.best_routes)
+print("Node Loads:", prob.node_load)
 # 限制時間 ==>
 # INFO:vrpy.master_solve_pulp:total cost = 8468.0
 # Best Value: 8468
@@ -96,13 +97,13 @@ time_limit = 10  # Let's limit it to 10 seconds for this example
 # Define historical routes [0, 2, 10, 0]
 # initial_routes = [['Source', 16, 14, 'Sink']]  # Example routes starting and ending at depot
 # Define preassigned routes that cannot be changed
-preassigned_routes = [[9, 5,]]  # Fixed route
-prob = VehicleRoutingProblem(G, load_capacity=4, num_stops=6, pickup_delivery=True)
+# preassigned_routes = [[9, 5,]]  # Fixed route
+# prob = VehicleRoutingProblem(G, load_capacity=4, num_stops=6, pickup_delivery=True)
 
-prob.solve(cspy=False, preassignments=preassigned_routes  ) # initial_routes=initial_routes
-print(prob.best_value)
-print(prob.best_routes)
-print(prob.node_load)
+# prob.solve(cspy=False, preassignments=preassigned_routes  ) # initial_routes=initial_routes
+# print(prob.best_value)
+# print(prob.best_routes)
+# print(prob.node_load)
 # preassignments 設定錯誤 [[3, 7, 5, 8]] 
 # ==>
 # 6984

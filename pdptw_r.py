@@ -4,102 +4,116 @@ from networkx import DiGraph, relabel_nodes, set_node_attributes
 from numpy import array
 import networkx as nx
 from vrpy import VehicleRoutingProblem
+import random
 
-# Number of pairs (pickup and delivery)
-PAIRS = 80
+# PAIRS設定：假設要處理10對pickup-delivery任務
+PAIRS = 40
 
-# Start timer
-start_time = time.time()
-
-# Randomly generate distances (between 10 and 1000 units)
+# 生成隨機的距離矩陣，並確保對稱性
 DISTANCES = [[0 if i == j else random.randint(10, 1000) for j in range(PAIRS + 2)] for i in range(PAIRS + 2)]
+for i in range(len(DISTANCES)):
+    for j in range(i, len(DISTANCES)):
+        DISTANCES[j][i] = DISTANCES[i][j]  # 確保矩陣對稱
 
-# Randomly generate demands (pickup positive, delivery negative)
-DEMAND = {i: random.randint(1, 5) if i % 2 == 1 else -random.randint(1, 5) for i in range(1, PAIRS + 1)}
-
-# Create the graph G from the distance matrix
+# 將距離矩陣轉換為DiGraph
 A = array(DISTANCES, dtype=[("cost", int)])
 G = nx.from_numpy_array(A, create_using=nx.DiGraph())
 
-# The depot is relabeled as Source and Sink
+# 重命名depot為Source和Sink
 G = relabel_nodes(G, {0: "Source", PAIRS + 1: "Sink"})
 
-# Randomly generate time windows for the nodes
-TIME_WINDOWS_LOWER = {i: random.randint(0, 10) for i in range(1, PAIRS + 1)}
-TIME_WINDOWS_UPPER = {i: TIME_WINDOWS_LOWER[i] + random.randint(5, 10) for i in range(1, PAIRS + 1)}
 
-# Set node attributes (demands and time windows)
+
+# 隨機設定pickup-delivery對應的工作負荷
+pickups_deliveries = {(2 * i + 1, 2 * i + 2): random.randint(1, 4) for i in range(PAIRS//2)}
+
+# 載荷需求 pickup 隨機1-4, 對應的 delivery 是對應的負數
+DEMAND = {}
+for pickup, delivery in pickups_deliveries:
+    DEMAND[pickup] = pickups_deliveries[(pickup, delivery)]  # 正數代表取走的載荷
+    DEMAND[delivery] = -pickups_deliveries[(pickup, delivery)]  # 負數代表交付的載荷
+
+# 生成時間窗口必須符合 (pickup, delivery)，pickup < delivery
+TIME_WINDOWS_LOWER = {}
+TIME_WINDOWS_UPPER = {}
+
+for pickup, delivery in pickups_deliveries:
+    # 隨機生成時間窗口下限，pickup 必須先於 delivery
+    pickup_lower = random.randint(0, 10)
+    delivery_lower = pickup_lower + random.randint(1, 5)  # 保證 delivery 晚於 pickup
+
+    TIME_WINDOWS_LOWER[pickup] = pickup_lower
+    TIME_WINDOWS_UPPER[pickup] = pickup_lower + random.randint(5, 10)  # 設定pickup的上限
+    TIME_WINDOWS_LOWER[delivery] = delivery_lower
+    TIME_WINDOWS_UPPER[delivery] = delivery_lower + random.randint(5, 10)  # 設定delivery的上限
+
+# 檢查結果
+print("Pickups and Deliveries:", pickups_deliveries)
+print("Demands:", DEMAND)
+print("Time Windows Lower Bound:", TIME_WINDOWS_LOWER)
+print("Time Windows Upper Bound:", TIME_WINDOWS_UPPER)
+
+
+# 設定節點的屬性（載荷和時間窗口）
 set_node_attributes(G, values=DEMAND, name="demand")
 set_node_attributes(G, values=TIME_WINDOWS_LOWER, name="lower")
 set_node_attributes(G, values=TIME_WINDOWS_UPPER, name="upper")
 
-# Generate random pairs (u, v) for pickups and deliveries
-pickups_deliveries = {(2*i+1, 2*i+2): DEMAND[2*i+1] for i in range(PAIRS // 2)}
 
-# Assign pickup and delivery attributes
+
+
+# print(f"pickups_deliveries: {pickups_deliveries}")
+# print(f"TIME_WINDOWS_LOWER: {TIME_WINDOWS_LOWER}")
+# print(f"TIME_WINDOWS_UPPER: {TIME_WINDOWS_UPPER}")
+# print(f"DEMAND: {DEMAND}")
+
 for (u, v) in pickups_deliveries:
     G.nodes[u]["request"] = v
     G.nodes[u]["demand"] = pickups_deliveries[(u, v)]
     G.nodes[v]["demand"] = -pickups_deliveries[(u, v)]
 
-# Ensure the source node has no incoming edges
+# 確保Source節點沒有incoming edges，Sink節點沒有outgoing edges
 for u in list(G.predecessors("Source")):
     G.remove_edge(u, "Source")
 
-# Ensure the sink node has no outgoing edges
 for v in list(G.successors("Sink")):
     G.remove_edge("Sink", v)
 
-# Now proceed with the VRP setup
-time_limit = 60*60*3
-prob = VehicleRoutingProblem(G, load_capacity=5, num_stops=6, pickup_delivery=True)
-prob.solve(cspy=False, ) #time_limit=time_limit
+# 設定時間窗口限制的檢查
+for (u, v) in pickups_deliveries:
+    if TIME_WINDOWS_UPPER[u] < TIME_WINDOWS_LOWER[v]:
+        print(f"Error: Pickup {u} cannot deliver to {v} due to incompatible time windows.")
 
-# End timer
+start_time = time.time()
+# 設置VRP問題
+prob = VehicleRoutingProblem(G, load_capacity=5, num_stops=6, pickup_delivery=True)
+prob.time_windows = True
+prob.solve(cspy=False)  # 設定 time_limit 等其他參數
+
+# 計算完成時間
 end_time = time.time()
 
-# Output results
+# 輸出結果
 print(f"Best objective value: {prob.best_value}")
 print(f"Best routes: {prob.best_routes}")
 print(f"Node loads: {prob.node_load}")
-print(f"Time taken: {end_time - start_time} seconds")
+# 計算總共花費的秒數
+total_time = end_time - start_time
 
-def check_pairs_served(routing, manager, solution, data):
-    served_pairs = set()
-    for vehicle_id in range(data['num_vehicles']):
-        index = routing.Start(vehicle_id)
-        while not routing.IsEnd(index):
-            node_index = manager.IndexToNode(index)
-            for pickup, delivery in data['pickups_deliveries']:
-                if node_index == pickup:
-                    served_pairs.add((pickup, delivery))
-            index = solution.Value(routing.NextVar(index))
+# 將總秒數轉換為小時、分鐘、秒
+hours = int(total_time // 3600)
+minutes = int((total_time % 3600) // 60)
+seconds = int(total_time % 60)
 
-    total_pairs = set(data['pickups_deliveries'])  # Your original pairs
-    missing_pairs = total_pairs - served_pairs
+# 構建時間顯示字串，根據是否有小時或分鐘決定是否顯示
+time_str = ""
+if hours > 0:
+    time_str += f"{hours} hr "
+if minutes > 0:
+    time_str += f"{minutes} min "
+time_str += f"{seconds} sec"
 
-    if missing_pairs:
-        print(f"Missing pairs in the solution: {missing_pairs}")
-    else:
-        print("All pairs are served in the solution.")
+# 顯示結果
+print(f"Time taken: {time_str}")
 
 
-'''
-macbook
-10: 6 sec
-20: 203 sec -> 3 min 23 sec
-30: 970 sec -> 16 min 10 sec
-40: 2003 sec -> 33 min 23 sec, 3600+ sec,
-50:  15562 sec -> 4 hr 19 min 22 sec
-60: 19973 sec -> 5 hr 32 min 53 sec
-70: 
-
-windows 89:
-10: 5.9 sec
-20: 138 sec -> 2 min 18 sec
-30: 297 sec -> 4 min 57 sec
-40: 2140 sec -> 35 min 40 sec
-50: 4967 sec -> 1 hr 22 min 47 sec
-60: 18324 sec -> 5 hr 5 min 24 sec
-70: 41460 sec -> 11 hr 3 min 6 sec
-'''
